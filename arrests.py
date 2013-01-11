@@ -92,20 +92,22 @@ def get_coord(rec, do_geocoding = False):
   if addrdb.has_key(address):
     cached_lookups += 1
     coord = [ float(x) for x in addrdb[address].split(":") ]
+    print("IN GET_COORD: returning cached coordinates")
     return coord
 
   geocode_lookups += 1
   targetcoord = homecoord
 
   if do_geocoding:
-    try:
+#    try:
+    if True:
       r = Geocoder.geocode(address)
-      targetcoord = (results[0].coordinates[0],
-                     results[0].coordinates[1])
-    except Exception, x:
-      pass
+      targetcoord = (r[0].coordinates[0],
+                     r[0].coordinates[1])
+#    except Exception, x:
+#      pass
   
-  addrdb[address] = "%s:%s" % targetcoord
+  addrdb[address] = "%s:%s" % (targetcoord[0], targetcoord[1])
   return targetcoord
 
 def get_dist(rec, do_geocoding=False):
