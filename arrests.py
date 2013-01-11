@@ -12,6 +12,7 @@ import md5
 from pygeocoder import Geocoder
 from math import *
 import argparse
+import ConfigParser, os
 
 etagcache = '.arrests.dat'
 geocode_lookups = 0
@@ -125,10 +126,15 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument("--geocode", "-g", action="store_true", help="geocode arrestee address", default=False)
   parser.add_argument("--sort", "-s", help="geocode arrestee address", default='date')
-  group = parser.add_mutually_exclusive_group(required=True)
-  group.add_argument("--home", help="specify origin address for arrestee residence distance")
-  group.add_argument("--coord", help="specify origin lat/long for arrestee residence distance")
+  parser.add_argument("--configuration", "-c", help="use valued from configuration file FILE", default="arrests.cfg")
+  parser.add_argument("--home", help="specify origin address for arrestee residence distance")
+  parser.add_argument("--latitude", type=float, help="specify origin lat/long for arrestee residence distance")
+  parser.add_argument("--longitude", type=float, help="specify origin lat/long for arrestee residence distance")
   args = parser.parse_args()
+
+  config = ConfigParser.ConfigParser()
+  config.readfp(open('arrests.cfg'))
+#  config.read(['site.cfg', os.path.expanduser('~/.myapp.cfg')])
 
   url = "http://www.fairfaxcounty.gov/police/crime/arrest.txt"
   r = geturl_cached(url)
@@ -144,10 +150,12 @@ def main():
     offsets.append(offsets[-1] + i)
 
   if args.home:
-    homecoord = get_coord(args.home)
-    print homecoord
+      homecoord = get_coord(args.home)
   else:
-    homecoord = [args.lat, args.long]
+    homecoord[0] = config.getfloat('home', 'latitude')
+    homecoord[1] = config.getfloat('home', 'longitude')
+    if args.latitude:
+      homecoord = [args.latitude, args.longitude]
 
   arrests = []
   for line in r:
