@@ -2,40 +2,32 @@
 import re
 import sys
 import urllib2
-import struct
 import datetime
 import time
-import pickle
 import os
-import dbm
 import md5
-
-from pygeocoder import Geocoder
-from math import *
 import argparse
 import ConfigParser, os
-import googlemaps
 import logging
 import models
+import geoutil
 
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('arrests')
 logger.setLevel(logging.DEBUG)
 sh = logging.StreamHandler(stream=sys.stderr)
 sh.setLevel(logging.DEBUG)
-sh.setFormatter(formatter                )
+sh.setFormatter(formatter)
 logger.addHandler(sh)
+
+for i in ['geoutil']:
+  l = logging.getLogger(i)
+  l.setLevel(logging.DEBUG)
+  l.addHandler(sh)
 
 etagcache = '.arrests.dat'
 geocode_lookups = 0
 cached_lookups = 0
-addrdb = dbm.open('addr.db', 'c')
-baddrdb = dbm.open('baddr.db', 'c')
-logger.debug("address database contains %d entries" % len(addrdb))
-api_key = None
-last_api_req = datetime.datetime.now()
-
-homecoord = [0,0]
 
 LNAME = 0
 FNAME = 1
@@ -45,15 +37,6 @@ DATE = 4
 CHARGE = 5
 DESCRIP = 6
 ADDRESS = 7
-
-def calcDist(A, B):
-  distance = (sin(radians(A[0])) *
-              sin(radians(B[0])) +
-              cos(radians(A[0])) *
-              cos(radians(B[0])) *
-              cos(radians(A[1] - B[1])))
-  distance = (degrees(acos(distance))) * 69.09
-  return distance
 
 def rfc822date(ts):
   print ts
@@ -85,7 +68,6 @@ def geturl_tofile(url, fn):
   rescache.close()
 
 def geturl_cached(url):
-
   lasttag = read_lastetag()
   curtag = get_etag(url)
 
@@ -101,69 +83,6 @@ def geturl_cached(url):
   return rescache
 
 
-def get_coord(rec, do_geocoding = False):
-
-  global api_key
-  global geocode_lookups
-  global cached_lookups
-  global addrdb
-  global homecoord
-  global last_api_req
-
-  address = rec[7]
-
-  if addrdb.has_key(address):
-    logger.debug("address found in cache")
-    cached_lookups += 1
-    coord = [ float(x) for x in addrdb[address].split(":") ]
-    return coord
-  
-  logger.debug('address not found in cache')
-  geocode_lookups += 1
-  targetcoord = (0.0, 0.0)
-  min_d = datetime.timedelta(milliseconds=1005)
-
-  if baddrdb.has_key(address):
-    logger.debug("known bad address")
-    return targetcoord
-
-  if do_geocoding:    
-    gmaps = googlemaps.GoogleMaps(api_key)
-    attempt = 0
-    while attempt < 3:
-      logger.debug('making attempt %d for %s' % (attempt, address))    
-      try:
-        now = datetime.datetime.now()
-        age = now - last_api_req
-        if age < min_d:
-          n = min_d - age
-          logger.debug("must sleep for %f seconds" % n.total_seconds())
-          time.sleep(n.total_seconds())
-        targetcoord = gmaps.address_to_latlng(address)
-        last_api_req = now
-        addrdb[address] = "%s:%s" % (targetcoord[0], targetcoord[1])
-        break
-      except googlemaps.GoogleMapsError, x:
-        last_api_req = now
-        logger.debug("do_geocoding: exception: %s" % x.message)
-        if str(x.message) == "602":
-          logger.debug("got a 602, tagging this as a bad address")
-          baddrdb[address] = 'true'
-          return targetcoord
-        elif str(x.message) == "620":
-          attempt += 1
-          if attempt == 3:
-            raise x
-          else:
-            logger.debug("waiting 10 seconds to retry request")
-            time.sleep(10)
-  
-  return targetcoord
-
-def get_dist(rec, do_geocoding=False):
-  targetcoord = get_coord(rec, do_geocoding)
-  return calcDist(homecoord, targetcoord)
-
 def ucfirst(s):
   if len(s):
     return s[0].upper() + s[1:].lower()
@@ -172,7 +91,6 @@ def ucfirst(s):
 def ucfwords(s):
   sep = " "
   return sep.join([ ucfirst(x) for x in s.split(" ") ])
-
 
 def main():
 
@@ -198,29 +116,17 @@ def main():
   r = geturl_cached(url)
   headers = r.readline()
   
-  global geocode_lookups
-  global cached_lookups
-  global homecoord
-  global api_key
-
-  api_key = config.get('home', 'api_key')
+  api_key = config.get('googlemaps', 'api_key')
   if args.api_key:
     api_key = args.api_key
 
-  if args.geocode and not api_key:
-    logger.error("Can't do geocoding withhout a googlemaps api_key")
-    sys.exit(1)
-
-
-  if args.home:
-      homecoord = get_coord(args.home)
-  else:
-    homecoord[0] = config.getfloat('home', 'latitude')
-    homecoord[1] = config.getfloat('home', 'longitude')
-    if args.latitude:
-      homecoord = [args.latitude, args.longitude]
-
-
+#  if args.home:
+#    home = get_coord(api_key=api_key, address=args.home)
+#  else:
+#    home[0] = config.getfloat('home', 'latitude')
+#    home[1] = config.getfloat('home', 'longitude')
+#    if args.latitude:
+#      geoutil.homecoord = [args.latitude, args.longitude]
 
   widths = [40, 20, 40, 5, 30, 25, 50, 100]
   offsets = [0]
@@ -246,17 +152,35 @@ def main():
       f.append(line[offset:offset+i].strip())
       offset += i
 
-    charge = models.get_or_add_charge(session, f[CHARGE], f[DESCRIP])
-    arrestee = models.get_or_add_arrestee(session, f[LNAME], f[FNAME], f[MNAME], f[ADDRESS], f[AGE])
+    charge = models.get_or_add_charge(session, name=f[CHARGE], description=f[DESCRIP])    
+    address = models.get_or_add_address(session, f[ADDRESS])
+
+    geo_api_error = 1
+    try:
+      (lat, lon) = geoutil.get_coord(address.address, False)
+      geo_api_error = 0
+    except geoutil.InvalidAddress, x:
+      lat=0.0
+      lon=0.0
+      
+    geo = models.get_or_add_geocoding(session,
+                                      address=address,
+                                      latitude=lat, 
+                                      longitude=lon, 
+                                      error=geo_api_error)
+
+    arrestee = models.get_or_add_arrestee(session, f[LNAME], f[FNAME], f[MNAME], address, f[AGE])
     date = time.strftime("%s", time.strptime(f[DATE], '%m/%d/%Y'))
     
     kwargs = { 'date' : date,
-               'charge' : charge.id,
-               'arrestee' : arrestee.id }
+               'charge' : charge,
+               'arrestee' : arrestee }
     
-    arrest = models.Arrest(**kwargs)
+    arrest = models.Arrest(date=date, 
+                           charge=charge.id, 
+                           arrestee=arrestee.id)
     session.add(arrest)
-
+    
   session.commit()
 
 #    try:
