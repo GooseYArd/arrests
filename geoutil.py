@@ -7,9 +7,6 @@ import time
 from math import sin, cos, radians, degrees, acos
 
 logger = logging.getLogger('geocoding')
-addrdb = dbm.open('addr.db', 'c')
-baddrdb = dbm.open('baddr.db', 'c')
-logger.debug("address database contains %d entries" % len(addrdb))
 global api_key 
 
 last_api_req = datetime.datetime.now()

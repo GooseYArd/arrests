@@ -8,7 +8,6 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship, backref
 
-import dbm
 import sys
 
 Base = declarative_base()
@@ -22,18 +21,10 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
 class Address(Base):
     __tablename__ = 'addresses'
     id = Column(Integer, Sequence('address_id_seq'), primary_key=True)
-    latitude = Column(String)
-    longitude = Column(String)
     address = Column(String, nullable=False, unique=True)
-    arrestee = relationship("Arrestee", backref=backref('arrestees', order_by=id))
 
-    def __init__(self, address, latitude=None, longitude=None):
-        self.address = address
-        self.latitude = latitude
-        self.longitude = longitude
-
-    def __repr__(self):
-        return "<Address('%s')>" % self.address
+    #arrestee = relationship("Arrestee", backref=backref('arrestees', order_by=id))
+    geocoding = relationship("Geocoding", backref=backref('geocoding', order_by=id))
 
 class Arrestee(Base):
   __tablename__ = 'arrestees'
@@ -42,11 +33,10 @@ class Arrestee(Base):
   fname = Column(String(50))
   lname = Column(String(50))
   mname = Column(String(50))
-  birthyear = Column(Integer)
-  address = Column(Integer, ForeignKey('addresses.id'))
+  age = Column(Integer)
+  address_id = Column(Integer, ForeignKey('addresses.id'))
 
-  def __repr__(self):
-      return "<Arrestee('%s','%s','%s')>" % (self.lname, self.fname, self.mname)
+  #address = relationship("Address", backref=backref('addresses', order_by=id))
 
 class Charge(Base):
     __tablename__ = 'charges'
@@ -54,7 +44,7 @@ class Charge(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     description = Column(String, nullable=False) 
-    arrests = relationship("Arrest", backref=backref('arrests', order_by=id))
+#    arrests = relationship("Arrest", backref=backref('arrests', order_by=id))
 
     def __repr__(self):
         return "<Charge('%d', '%s','%s')>" % (self.id, self.name, self.description)
@@ -63,18 +53,21 @@ class Arrest(Base):
   __tablename__ = 'arrests'
   id = Column(Integer, Sequence('arrest_id_seq'), primary_key=True)
   date = Column(Integer)
-  arrestee = Column(Integer, ForeignKey('arrestees.id'))
-  charge = Column(Integer, ForeignKey('charges.id'))
-
-  def __repr__(self):
-      return "<Arrest('%s','%s','%s')>" % (self.arrestee, 
-                                           self.date, 
-                                           self.charge)
-
+  charge_id = Column(Integer, ForeignKey('charges.id'))
+  charge = relationship("Charge", backref=backref('charges', order_by=id))  
+  arrestee_id = Column(Integer, ForeignKey('arrestees.id'))
+  arrestee = relationship("Arrestee", backref=backref("arrestees", order_by=id))
+ 
 class Geocoding(Base):
-    __tablename__ = 'geocoding'
-    id = Column(Integer, Sequence('arrest_id_seq'), primary_key=True)
-    address = Column(Integer, ForeignKey('addresses.id'))
+    __tablename__ = 'geocodings'
+    id = Column(Integer, 
+                Sequence('geocoding_id_seq'), 
+                primary_key=True)
+
+    address_id = Column(Integer, ForeignKey('addresses.id'))
+
+    #address = relationship("Address", backref=backref('addresses', order_by=id))
+
     error = Column(Integer, nullable=False)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
@@ -85,84 +78,13 @@ def get_session():
     Session = sessionmaker(bind=engine)
     return Session()
 
-def get_or_add_charge(session, name, description):
-
-    if session.query(Charge).filter_by(name=name).count() > 0:
-        charge = session.query(Charge).filter_by(name=name, description=description).one()
+def get_or_create(session, model, **kwargs):
+    instance = session.query(model).filter_by(**kwargs).first()
+    if instance:
+        return instance
     else:
-        charge = Charge(name=name, description=description)
-        session.add(charge)
+        instance = model(**kwargs)
+        session.add(instance)
         session.flush()
-
-    return charge
-
-def get_or_add_geocoding(session, address, latitude, longitude, error):
-    if session.query(Geocoding).filter_by(address=address.id).count() > 0:
-        geocoding = session.query(Geocoding).filter_by(address=address.id).one()
-    else:
-        geocoding = Geocoding(address=address.id, 
-                              latitude=latitude,
-                              longitude=longitude,
-                              error=error)
-        session.add(geocoding)
-        session.flush()
-
-    return geocoding
-
-def get_or_add_address(session, addrtxt):
-    if session.query(Address).filter_by(address=addrtxt).count() > 0:
-        address = session.query(Address).filter_by(address=addrtxt).one()
-    else:
-        address = Address(addrtxt)
-        session.add(address)
-        session.flush()
-    return address
- 
-def get_or_add_arrestee(session, lname, fname, mname, address, age):
-    if session.query(Arrestee).filter_by(lname=lname,mname=mname,fname=fname).count() > 0:
-        arrestee = session.query(Arrestee).filter_by(lname=lname,mname=mname,fname=fname).one()
-    else:
-        arrestee = Arrestee(fname=fname,mname=mname,lname=lname,address=address.id)
-        session.add(arrestee)
-        session.flush()
-
-    return arrestee
-
-if __name__ == "__main__":
-  
-    session = get_session()
-    
-    for address in addrdb.keys():
-        (lat,lon) = addrdb[address].split(":")
-        address = Address(address, lat, lon)
-        session.add(address)
-
-    session.commit()
-    sys.exit(0)
-
-    addrtxt = '13949 Valley Country Dr, Chantilly VA 20151'
-    charge = '1.2.3'
-    charge_descrip = 'lewd pelvic thrusting'
-    fname = "Raymond"
-    mname = "Andrew"
-    lname = "Bailey"
-    age = 38
-
-    if session.query(Arrestee).filter_by(lname=lname,mname=mname,fname=fname).count() > 0:
-        arrestee = session.query(Arrestee).filter_by(lname=lname,mname=mname,fname=fname).one()
-    else:
-        arrestee = Arrestee(fname=fname,mname=mname,lname=lname,address=address.id)
-        session.add(arrestee)
-
-    session.commit()
-
-#  if not address:
-#  myaddr = Address()
-#  session.add(myaddr)
-#  session.commit()
-#  me = Arrestee(
-#  post = BlogPost("Wendy's Blog Post", "This is a test", wendy)
-#  session.add(post)
-
-
+        return instance
 

@@ -38,10 +38,6 @@ CHARGE = 5
 DESCRIP = 6
 ADDRESS = 7
 
-def rfc822date(ts):
-  print ts
-  return time.strptime("%a, %d %b %Y %H:%M:%S GMT", ts)
-
 def get_etag(url):
   request = urllib2.Request(url)
   request.get_method = lambda : 'HEAD'
@@ -82,16 +78,6 @@ def geturl_cached(url):
   rescache = open(".arrests.cache", "rb")
   return rescache
 
-
-def ucfirst(s):
-  if len(s):
-    return s[0].upper() + s[1:].lower()
-  return ""
-
-def ucfwords(s):
-  sep = " "
-  return sep.join([ ucfirst(x) for x in s.split(" ") ])
-
 def main():
 
   parser = argparse.ArgumentParser()
@@ -120,14 +106,6 @@ def main():
   if args.api_key:
     api_key = args.api_key
 
-#  if args.home:
-#    home = get_coord(api_key=api_key, address=args.home)
-#  else:
-#    home[0] = config.getfloat('home', 'latitude')
-#    home[1] = config.getfloat('home', 'longitude')
-#    if args.latitude:
-#      geoutil.homecoord = [args.latitude, args.longitude]
-
   widths = [40, 20, 40, 5, 30, 25, 50, 100]
   offsets = [0]
   for i in widths:
@@ -139,6 +117,8 @@ def main():
   logger.debug("limiting to %d records" % args.limit)
 
   session = models.get_session()
+
+  arrests = []
   while count < args.limit:
     line = r.readline()
     if len(line) == 0:
@@ -152,38 +132,51 @@ def main():
       f.append(line[offset:offset+i].strip())
       offset += i
 
-    charge = models.get_or_add_charge(session, name=f[CHARGE], description=f[DESCRIP])    
-    address = models.get_or_add_address(session, f[ADDRESS])
+    charge = models.get_or_create(session,
+                                  models.Charge, 
+                                  name=f[CHARGE], 
+                                  description=f[DESCRIP])
+    
+    address = models.get_or_create(session,
+                                   models.Address,
+                                   address=f[ADDRESS])
 
-    geo_api_error = 1
-    try:
-      (lat, lon) = geoutil.get_coord(address.address, False)
-      geo_api_error = 0
-    except geoutil.InvalidAddress, x:
-      lat=0.0
-      lon=0.0
+    # geo_api_error = 1
+    # if not models.have_geocoding(session, address):
+    #   raise Exception('whoops missed an address')
+    #   try:
+    #     (lat, lon) = geoutil.get_coord(address.address, False)
+    #     geo_api_error = 0
+    #   except geoutil.InvalidAddress, x:
+    #     lat=0.0
+    #     lon=0.0
+
+    #    geo = models.add_geocoding(session,
+    #                              address=address,
+    #                              latitude=lat, 
+    #                              longitude=lon, 
+    #                              error=geo_api_error)        
       
-    geo = models.get_or_add_geocoding(session,
-                                      address=address,
-                                      latitude=lat, 
-                                      longitude=lon, 
-                                      error=geo_api_error)
-
-    arrestee = models.get_or_add_arrestee(session, f[LNAME], f[FNAME], f[MNAME], address, f[AGE])
+    arrestee = models.get_or_create(session,
+                                    models.Arrestee,
+                                    lname = f[LNAME],
+                                    fname = f[FNAME],
+                                    mname = f[MNAME],
+                                    age = f[AGE],
+                                    address_id = address.id)
+ 
     date = time.strftime("%s", time.strptime(f[DATE], '%m/%d/%Y'))
-    
-    kwargs = { 'date' : date,
-               'charge' : charge,
-               'arrestee' : arrestee }
-    
-    arrest = models.Arrest(date=date, 
-                           charge=charge.id, 
-                           arrestee=arrestee.id)
+        
+    arrest = models.get_or_create(session,
+                                  models.Arrest,
+                                  date=date, 
+                                  charge=charge, 
+                                  arrestee=arrestee)
+    arrests.append(arrest)
     session.add(arrest)
     
   session.commit()
 
-#    try:
 #    if 1:
 
       # arrest['name'] = "'%s, %s %s'" % (ucfwords(f[LNAME]),
