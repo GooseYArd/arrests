@@ -71,7 +71,7 @@ class Geocoding(Base):
     error = Column(Integer, nullable=False)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
-    
+
 def get_session():
     engine = create_engine('sqlite:///arrests.db', echo=False)
     Base.metadata.create_all(engine) 
@@ -81,10 +81,10 @@ def get_session():
 def get_or_create(session, model, **kwargs):
     instance = session.query(model).filter_by(**kwargs).first()
     if instance:
-        return instance
+        return (False, instance)
     else:
         instance = model(**kwargs)
         session.add(instance)
         session.flush()
-        return instance
+        return (True, instance)
 

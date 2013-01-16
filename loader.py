@@ -118,7 +118,8 @@ def main():
 
   session = models.get_session()
 
-  arrests = []
+  new_arrests = 0
+
   while count < args.limit:
     line = r.readline()
     if len(line) == 0:
@@ -132,14 +133,14 @@ def main():
       f.append(line[offset:offset+i].strip())
       offset += i
 
-    charge = models.get_or_create(session,
-                                  models.Charge, 
-                                  name=f[CHARGE], 
-                                  description=f[DESCRIP])
-    
-    address = models.get_or_create(session,
-                                   models.Address,
-                                   address=f[ADDRESS])
+    (is_new, charge) = models.get_or_create(session,
+                                            models.Charge, 
+                                            name=f[CHARGE], 
+                                            description=f[DESCRIP])
+      
+    (is_new, address) = models.get_or_create(session,
+                                             models.Address,
+                                             address=f[ADDRESS])
 
     # geo_api_error = 1
     # if not models.have_geocoding(session, address):
@@ -157,26 +158,28 @@ def main():
     #                              longitude=lon, 
     #                              error=geo_api_error)        
       
-    arrestee = models.get_or_create(session,
-                                    models.Arrestee,
-                                    lname = f[LNAME],
-                                    fname = f[FNAME],
-                                    mname = f[MNAME],
-                                    age = f[AGE],
-                                    address_id = address.id)
+    (is_new, arrestee) = models.get_or_create(session,
+                                              models.Arrestee,
+                                              lname = f[LNAME],
+                                              fname = f[FNAME],
+                                              mname = f[MNAME],
+                                              age = f[AGE],
+                                              address_id = address.id)
  
     date = time.strftime("%s", time.strptime(f[DATE], '%m/%d/%Y'))
-        
-    arrest = models.get_or_create(session,
-                                  models.Arrest,
-                                  date=date, 
-                                  charge=charge, 
-                                  arrestee=arrestee)
-    arrests.append(arrest)
-    session.add(arrest)
+    
+    (is_new, arrest) = models.get_or_create(session,
+                                            models.Arrest,
+                                            date=date, 
+                                            charge=charge, 
+                                            arrestee=arrestee)
+    if is_new:
+      new_arrests += 1
+      session.add(arrest)
     
   session.commit()
-
+  print "Found %d new arrest records" % new_arrests
+  
 #    if 1:
 
       # arrest['name'] = "'%s, %s %s'" % (ucfwords(f[LNAME]),
